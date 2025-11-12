@@ -1,97 +1,86 @@
 const mongoose = require("mongoose");
 
 mongoose.set("strictQuery", true);
+// 🔴 importante: niente buffering se il DB non è pronto
+mongoose.set("bufferCommands", false);
 
 const STATE = ["disconnected", "connected", "connecting", "disconnecting"];
 
 function mongoReady() {
   return mongoose?.connection?.readyState === 1;
 }
-
 function stateLabel() {
   return STATE[mongoose?.connection?.readyState ?? 0];
 }
-
 function redact(uri = "") {
   return uri.replace(/\/\/([^:@]+):([^@]+)@/, "//$1:***@");
 }
 
-/**
- * connette a mongodb se presente la MONGO_URI.
- * - Idempotente: se già connesso/connecting, non duplica le connessioni.
- * - Non lancia eccezioni: logga e restituisce null in caso di errore.
- * - Usa autoIndex solo in dev.
- */
 async function connectDB(uri) {
   const mongoUri = uri || process.env.MONGO_URI;
   if (!mongoUri) {
-    console.warn(" MONGO_URI not set: boot without DB (fallback on file).");
+    console.warn("MONGO_URI not set: boot without DB (fallback on file).");
     return null;
   }
 
-  // già connesso
   if (mongoose.connection.readyState === 1) {
-    console.log(" already connected to mongodb .", mongoose.connection.name ? `DB: ${mongoose.connection.name}` : "");
+    console.log("Already connected to MongoDB.", mongoose.connection.name ? `DB: ${mongoose.connection.name}` : "");
     return mongoose.connection;
   }
 
-  // fase di connessione
   if (mongoose.connection.readyState === 2) {
-    console.log("connection mongodb in corso…");
-    await new Promise((resolve, reject) => {
-      const onOk = () => { cleanup(); resolve(); };
-      const onErr = (err) => { cleanup(); reject(err); };
-      const cleanup = () => {
-        mongoose.connection.off("connected", onOk);
-        mongoose.connection.off("error", onErr);
-      };
-      mongoose.connection.once("connected", onOk);
-      mongoose.connection.once("error", onErr);
-      // timeout di sicurezza
-      setTimeout(() => { cleanup(); resolve(); }, 5000);
-    }).catch(() => null);
+    console.log("Connection to MongoDB in progress…");
+    try {
+      await new Promise((resolve, reject) => {
+        const onOk = () => { cleanup(); resolve(); };
+        const onErr = (err) => { cleanup(); reject(err); };
+        const cleanup = () => {
+          mongoose.connection.off("connected", onOk);
+          mongoose.connection.off("error", onErr);
+        };
+        mongoose.connection.once("connected", onOk);
+        mongoose.connection.once("error", onErr);
+        setTimeout(() => { cleanup(); resolve(); }, 5000);
+      });
+    } catch (_) {}
     return mongoose.connection.readyState === 1 ? mongoose.connection : null;
   }
 
-  // connetti
   try {
+    // registra i listener una volta
+    mongoose.connection.on("error", (e) => console.error("mongo error:", e.message));
+    mongoose.connection.on("disconnected", () => console.warn("mongo disconnected"));
+    mongoose.connection.on("reconnected", () => console.log("mongo reconnected"));
+
     const opts = {
       serverSelectionTimeoutMS: Number(process.env.MONGO_TIMEOUT_MS || 5000),
+      socketTimeoutMS: 20000,
+      connectTimeoutMS: 20000,
       maxPoolSize: Number(process.env.MONGO_POOL || 10),
       autoIndex: process.env.NODE_ENV !== "production",
     };
 
-    // log essenziale
     console.log("🔌 Connessione a MongoDB:", redact(mongoUri));
     await mongoose.connect(mongoUri, opts);
 
-    // event logging minimale
-    mongoose.connection.on("error", (e) => console.error("mongo error:", e.message));
-    mongoose.connection.on("disconnected", () => console.warn("mongo disconnected"));
-    mongoose.connection.on("reconnected", () => console.log(" mongo reconnected"));
-
-    console.log(`mongodb connected (state=${stateLabel()}) DB: ${mongoose.connection.name}`);
+    console.log(`MongoDB connected (state=${stateLabel()}) DB: ${mongoose.connection.name}`);
     return mongoose.connection;
   } catch (err) {
-    console.error(" connecting error mongodb:", err.message);
-    console.warn(" proseguo senza DB (fallback su file).");
+    console.error("Connecting error MongoDB:", err.message);
+    console.warn("Proseguo senza DB (fallback su file).");
     return null;
   }
 }
 
-/** chiude la connessione in modo sicuro */
 async function closeDB() {
   try {
     if (mongoose.connection.readyState !== 0) {
       await mongoose.connection.close();
-      console.log("connected close to mongodb .");
+      console.log("Connection to MongoDB closed.");
     }
   } catch (e) {
-    console.error("close erroe mongodb:", e?.message || e);
+    console.error("Close error MongoDB:", e?.message || e);
   }
 }
 
-module.exports = connectDB;
-module.exports.mongoReady = mongoReady;
-module.exports.closeDB = closeDB;
-module.exports.stateLabel = stateLabel;
+module.exports = { connectDB, mongoReady, closeDB, stateLabel };
