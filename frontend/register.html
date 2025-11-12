@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>User Registration</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1>Register to Click&Food — the best choice you can make!</h1>
+
+  <form id="register-form" autocomplete="on">
+    <label for="username">Username:</label>
+    <input type="text" id="username" autocomplete="username" required><br><br>
+
+    <label for="email">Email:</label>
+    <input type="email" id="email" autocomplete="email" required><br><br>
+
+    <label for="password">Password:</label>
+    <input type="password" id="password" autocomplete="new-password" minlength="6" required><br><br>
+
+    <label for="role">Role:</label>
+    <select id="role" required>
+      <option value="cliente">Customer</option>
+      <option value="ristoratore">Restaurant</option>
+    </select><br><br>
+
+    <!-- Sezione CLIENTE -->
+    <div id="cliente-extra" style="display:none;">
+      <label for="nome">First Name:</label>
+      <input type="text" id="nome" autocomplete="given-name"><br><br>
+
+      <label for="cognome">Last Name:</label>
+      <input type="text" id="cognome" autocomplete="family-name"><br><br>
+
+      <label for="pagamento">Payment method:</label>
+      <select id="pagamento">
+        <option value="">-- Select --</option>
+        <option value="Visa">Visa</option>
+        <option value="Mastercard">Mastercard</option>
+        <option value="Postepay">Postepay</option>
+        <option value="Amex">American Express</option>
+      </select><br><br>
+
+      <label for="preferenza">Product preference (category):</label>
+      <select id="preferenza">
+        <option value="">-- No preference --</option>
+        <option value="Starter">Starter</option>
+        <option value="Beef">Beef</option>
+        <option value="Chicken">Chicken</option>
+        <option value="Vegetarian">Vegetarian</option>
+        <option value="Vegan">Vegan</option>
+        <option value="Lamb">Lamb</option>
+        <option value="Pasta">Pasta</option>
+        <option value="Seafood">Seafood</option>
+        <option value="Goat">Goat</option>
+        <option value="Pork">Pork</option>
+        <option value="Miscellaneous">Miscellaneous</option>
+        <option value="Breakfast">Breakfast</option>
+        <option value="Side">Side</option>
+        <option value="Dessert">Dessert</option>
+      </select><br><br>
+    </div>
+
+    <!-- Sezione RISTORATORE -->
+    <div id="ristoratore-extra" style="display:none;">
+      <label for="restaurantName">Restaurant name:</label>
+      <input type="text" id="restaurantName"><br><br>
+
+      <label for="piva">VAT number:</label>
+      <input type="text" id="piva"><br><br>
+
+      <label for="telefono">Phone number:</label>
+      <input type="text" id="telefono"><br><br>
+
+      <label for="luogo">City:</label>
+      <input type="text" id="luogo" autocomplete="address-level2"><br><br>
+
+      <label for="via">Street address:</label>
+      <input type="text" id="via" autocomplete="street-address"><br><br>
+    </div>
+
+    <button type="submit">Register</button>
+    <button type="button" onclick="window.location.href='login.html'">Go to login</button>
+  </form>
+
+  <script src="js/register.js" defer></script>
+</body>
+</html>

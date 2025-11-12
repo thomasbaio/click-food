@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Search for dishes</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1>Search for dishes</h1>
+  <h2>Perfect for you</h2>
+
+  <!-- qui non mostriamo più login/logout/registrazione -->
+  <div id="user-info" style="margin-bottom:20px;"></div>
+
+  <label>Name: <input type="text" id="nome"></label><br>
+  <label>Typology: <input type="text" id="tipologia"></label><br>
+  <label>Maximum price: <input type="number" id="prezzo" step="0.01"></label><br><br>
+
+  <button onclick="cercaPiatti()">Search</button>
+
+  <p><a href="index.html">Back to homepage</a></p>
+
+  <h2>Results</h2>
+  <ul id="risultati-piatti"></ul>
+
+  <script src="js/ricerca_piatti.js?v=5" defer></script>
+</body>
+</html>

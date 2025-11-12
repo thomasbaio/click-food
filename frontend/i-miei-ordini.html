@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>My orders</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/png" href="images/logo.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>My orders</h1>
+
+  <div id="summary" class="ordine-box" style="margin-bottom:16px;">
+    <p class="muted">Loading...</p>
+  </div>
+
+  <div id="noti"></div>
+
+  <div id="orders-container">
+    <p>Loading...</p>
+  </div>
+
+  <p><a href="index.html">Return to the homepage</a></p>
+  <p><a href="storico_clienti.html">Order history</a></p>
+
+ <script src="js/main.js" defer></script>
+
+<script>
+// ---------- API_BASE fallback ----------
+(function () {
+  if (!window.API_BASE) {
+    const isLocal = ["localhost","127.0.0.1"].includes(location.hostname);
+    window.API_BASE = isLocal ? "http://localhost:3000"
+                              : (location.origin || "https://restaurant-management-wzhj.onrender.com");
+  }
+})();
+
+/* -------------------- helpers generici -------------------- */
+const mealName  = p => p?.nome ?? p?.strMeal ?? p?.name ?? "Dish";
+const mealPrice = p => Number(p?.prezzo ?? p?.price ?? 0) || 0;
+const mealId    = p => p?.idmeals ?? p?.idMeal ?? p?.id ?? p?._id;
+const orderId   = o => o?.id ?? o?._id ?? "";
+const fmtMoney  = n => `€${Number(n||0).toFixed(2)}`;
+const fmtDate   = iso => { try { return new Date(iso).toLocaleString('en-GB'); } catch { return ""; } };
+
+const CLOSED_STATES = ["ritirato","consegnato","annullato","withdrawn","delivered","canceled","cancelled"];
+const isClosedStatus = s => CLOSED_STATES.includes(String(s||"").toLowerCase());
+
+const labelStatus = s => {
+  const t = String(s||"").toLowerCase();
+  const map = {
+    ordinato: "Ordered",
+    preparazione: "Preparing",
+    consegna: "Ready for pickup",
+    consegnato: "Delivered",
+    ritirato: "Picked up",
+    annullato: "Canceled",
+    withdrawn: "Picked up",
+    delivered: "Delivered",
+    canceled: "Canceled",
+    cancelled: "Canceled"
+  };
+  return map[t] || (s || "Unknown");
+};
+const badgeClass = s => `badge ${String(s||"").toLowerCase()}`;
+
+/* -------------------- scoperta endpoint (ANTI-404) -------------------- */
+let ORDERS_BASE = null; // p.es. "/orders" o "/ordini" o "/api/orders"
+let MEALS_BASE  = null; // p.es. "/meals"  o "/piatti" o "/api/meals"
+
+async function tryFetchJson(url, opt = {}) {
+  try {
+    const res = await fetch(url, { mode: "cors", ...opt });
+    if (!res.ok) return { ok: false, status: res.status, json: null };
+    const json = await res.json().catch(() => null);
+    return { ok: true, status: res.status, json };
+  } catch {
+    return { ok: false, status: 0, json: null };
+  }
+}
+
+async function discoverOrders(username) {
+  const candidates = ["/orders","/ordini","/api/orders","/api/ordini","/order","/customer-orders"];
+  for (const base of candidates) {
+    const url = `${API_BASE}${base}?` + new URLSearchParams({ username });
+    const r = await tryFetchJson(url);
+    if (r.ok && Array.isArray(r.json)) return { base, data: r.json };
+    // alcuni backend rispondono 200 ma con oggetto -> lo accetto come valido
+    if (r.ok && r.json != null)      return { base, data: Array.isArray(r.json) ? r.json : [] };
+    // se 401/403 considero valido (endpoint esiste), ma servirà login
+    if ([401,403].includes(r.status)) return { base, data: [] };
+  }
+  return { base: null, data: [] };
+}
+
+async function discoverMeals() {
+  const candidates = ["/meals","/piatti","/api/meals","/api/piatti"];
+  for (const base of candidates) {
+    const r = await tryFetchJson(`${API_BASE}${base}`);
+    if (r.ok && r.json != null) return { base, data: r.json };
+  }
+  return { base: null, data: [] };
+}
+//questa parte si occupa di provare a fare il fetch del json poi come secondo passo estrarre ordine partendo dal username ed in di estrarre i piatti
+/* ------------- mappa id->({name,price}) dal catalogo ------------- */
+function buildMealsMap(raw) {
+  const map = new Map();
+  const arr = Array.isArray(raw) ? raw : [];
+  arr.forEach(node => {
+    if (Array.isArray(node?.menu)) {
+      node.menu.forEach(p => {
+        map.set(String(mealId(p)), { name: mealName(p), price: mealPrice(p) });
+      });
+    } else {
+      const p = node;
+      if (p && (mealId(p) != null)) {
+        map.set(String(mealId(p)), { name: mealName(p), price: mealPrice(p) });
+      }
+    }
+  });
+  return map;
+}
+//pezzo di codice usato per recuperare la mappa 
+/* ---------------------- calcolo totali/righe ---------------------- */
+const getQty = it => Number(it?.qty ?? it?.quantity ?? it?.quantita ?? it?.q ?? 1) || 1;
+const getItemId = it => it?.mealId ?? it?.idmeal ?? it?.idmeals ?? it?.idMeal ?? it?.id ?? it?._id;
+const isNoName = s => { const t = String(s||"").trim().toLowerCase(); return !t || t === "senza nome" || t === "unnamed" || t === "dish"; };
+
+function firstNumber(...vals) { for (const v of vals) { const n = Number(v); if (Number.isFinite(n)) return n; } return NaN; }
+function getLineTotal(it) { return firstNumber(it?.lineTotal,it?.line_total,it?.total,it?.totale,it?.subtotal,it?.importoTotale,it?.amount_total); }
+function getUnitPrice(it, cat) {
+  const fromItem = firstNumber(it?.prezzo,it?.price,it?.unitPrice,it?.prezzoUnitario,it?.costo,it?.cost,it?.amount,it?.importo,it?.unit_amount);
+  if (Number.isFinite(fromItem) && fromItem > 0) return fromItem;
+  const qty = getQty(it);
+  const line = getLineTotal(it);
+  if (qty > 0 && Number.isFinite(line) && line > 0) return line/qty;
+  const fromCatalog = Number(cat?.price);
+  if (Number.isFinite(fromCatalog) && fromCatalog > 0) return fromCatalog;
+  return 0;
+}
+function getOrderSnapshotTotal(ord) {
+  return firstNumber(ord?.total,ord?.totale,ord?.grandTotal,ord?.amount_total,ord?.subtotal,ord?.importoTotale);
+}
+// si occupa di ricavare il numero totale di linee di avee il prezzo unitario ed prima ancora il primo numero ed di avere uno sapshot del totale
+function renderItemsAndTotal(order, mealsMap) {
+  let total = 0, rows = [];
+  const pushRow = (name, qty, unit, lineMaybe) => {
+    const line = Number.isFinite(lineMaybe) && lineMaybe > 0 ? lineMaybe : unit * qty;
+    total += line;
+    rows.push(`<li>${name} &times;${qty} — <span class="muted">each</span> ${fmtMoney(unit)} <strong>→ ${fmtMoney(line)}</strong></li>`);
+  };
+
+  if (Array.isArray(order.items) && order.items.length) {
+    order.items.forEach(it => {
+      const id  = getItemId(it);
+      const cat = id ? mealsMap.get(String(id)) : null;
+      let name  = it.name ?? it.nome ?? "";
+      if (isNoName(name)) name = cat?.name || (id ? `Dish #${id}` : "Dish");
+      const qty   = getQty(it);
+      const unit  = getUnitPrice(it, cat);
+      const lineT = getLineTotal(it);
+      pushRow(name, qty, unit, lineT);
+    });
+  } else if (Array.isArray(order.meals) && order.meals.length) {
+    order.meals.forEach(m => {
+      const id  = (typeof m === "object") ? getItemId(m) : m;
+      const qty = (typeof m === "object") ? getQty(m) : 1;
+      const cat = id != null ? mealsMap.get(String(id)) : null;
+      const name  = cat?.name || `Dish #${id ?? "?"}`;
+      const unit  = getUnitPrice(m, cat);
+      const lineT = getLineTotal(m);
+      pushRow(name, qty, unit, lineT);
+    });
+  } else {
+    const snap = getOrderSnapshotTotal(order);
+    if (Number.isFinite(snap) && snap > 0) {
+      total = snap;
+      rows = [`<li class="muted">(order total provided by the backend)</li>`];
+    } else {
+      total = 0;
+      rows = [`<li class="muted">-</li>`];
+    }
+  }
+  const snap = getOrderSnapshotTotal(order);
+  if (Number.isFinite(snap) && snap > 0) total = snap;
+  return { listHtml: rows.join(""), total };
+}
+function computeTotalForOrder(ord, mealsMap) {
+  const snap = getOrderSnapshotTotal(ord);
+  if (Number.isFinite(snap) && snap > 0) return snap;
+  return renderItemsAndTotal(ord, mealsMap).total;
+}
+// questa fase di normalizzazione dei dati per scriverli in unico modo
+/* ---------------------- countdown ---------------------- */
+function minutesLabel(ms){ const m=Math.ceil(ms/60000); if(m<=1)return "≈ 1 min"; if(m<=5)return "≈ 5 min"; if(m<=10)return "≈ 10 min"; return `≈ ${m} min`; }
+function getETA(ord){
+  const now=Date.now(); const state=String(ord?.status ?? ord?.state ?? "").toLowerCase();
+  const readyAtISO = ord.readyAt || ord.etaReadyAt || ord.estimatedReadyAt;
+  if (readyAtISO){ const ra = new Date(readyAtISO).getTime(); const rem = Math.max(0, ra-now);
+    return { readyAt:new Date(ra), remainingMs:rem, label: rem===0?"Ready for pickup":minutesLabel(rem) };
+  }
+  const mins = Number(ord.prepMinutes || ord.etaMinutes);
+  if (!Number.isNaN(mins) && mins>0){
+    const ra = (new Date(ord.createdAt||Date.now())).getTime()+mins*60000; const rem=Math.max(0, ra-now);
+    return { readyAt:new Date(ra), remainingMs:rem, label: rem===0?"Ready for pickup":minutesLabel(rem) };
+  }
+  if (state==="consegna") return { readyAt:new Date(), remainingMs:0, label:"Ready for pickup" };
+  const base = (state==="preparazione")?10:20; const ra=(new Date(ord.createdAt||Date.now())).getTime()+base*60000; const rem=Math.max(0,ra-now);
+  return { readyAt:new Date(ra), remainingMs:rem, label: rem===0?"Ready for pickup":minutesLabel(rem) };
+}
+function startCountdown(span, order){
+  const tick=()=>{ const eta=getETA(order); span.textContent=eta.label; span.className="eta "+(eta.remainingMs===0?"done":eta.remainingMs<=600000?"soon":"wait"); };
+  tick(); const id=setInterval(()=>{ if(!span.isConnected) return clearInterval(id); tick(); },15000);
+}
+//questa parte di codice si occupa far visualizzare al cliente il tempo in cui ordine saà pronto
+/* ---------------------- init ---------------------- */
+document.addEventListener("DOMContentLoaded", initOrders);
+
+async function initOrders(){
+  const user = JSON.parse(localStorage.getItem("loggedUser"));
+  if (!user || user.role !== "cliente") {
+    alert("Access reserved for customers");
+    location.href = "login.html";
+    return;
+  }
+
+  const container = document.getElementById("orders-container");
+  const summary   = document.getElementById("summary");
+  const noti      = document.getElementById("noti");
+
+  try {
+    // 1) scopri endpoint ordini (evita 404)
+    const dOrders = await discoverOrders(user.username);
+    ORDERS_BASE = dOrders.base || "/orders"; // default
+    const orders = dOrders.data;             // se già arrivati dall'endpoint “buono”
+
+    // 2) scopri endpoint piatti (evita 404)
+    const dMeals = await discoverMeals();
+    MEALS_BASE = dMeals.base || "/meals";
+    const restaurants = dMeals.data;
+    const mealsMap = buildMealsMap(restaurants);
+
+    const all = Array.isArray(orders) ? orders : [];
+    const active = all.filter(o => !isClosedStatus(o?.status ?? o?.state));
+
+    const totalAll = all.reduce((s,o) => s + computeTotalForOrder(o, mealsMap), 0);
+    const totalAct = active.reduce((s,o) => s + computeTotalForOrder(o, mealsMap), 0);
+
+    const ordWord = active.length === 1 ? "active order" : "active orders";
+    summary.innerHTML = `
+      <p><strong>Total spent (all orders):</strong> ${fmtMoney(totalAll)}</p>
+      <p><strong>Active total:</strong> ${fmtMoney(totalAct)} — ${active.length} ${ordWord}</p>
+    `;
+
+    
+    if (active.length === 0) {
+      container.innerHTML = `
+        <p>No active orders.</p>
+        <p class="muted">You can find picked-up/cancelled orders in the <a href="storico_clienti.html">order history</a>.</p>`;
+      return;
+    }
+
+    container.innerHTML = "";
+    [...active].sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0))
+    .forEach(order => {
+      const div = document.createElement("div");
+      div.className = "ordine-box";
+
+      const { listHtml, total } = renderItemsAndTotal(order, mealsMap);
+      const idOrd   = orderId(order);
+      const rawSt   = (order?.status ?? order?.state ?? "Unknown");
+      const stLabel = labelStatus(rawSt);
+      const etaInfo = getETA(order);
+
+      div.innerHTML = `
+        <p class="rig"><strong>ID:</strong> ${idOrd || "<span class='muted'>(n/a)</span>"} </p>
+        <p class="rig"><strong>Created:</strong> ${order?.createdAt ? fmtDate(order.createdAt) : "<span class='muted'>n/a</span>"}</p>
+        <p class="rig"><strong>Mode:</strong> Pick up in store</p>
+        <p class="rig"><strong>Status:</strong> <span class="stato ${badgeClass(rawSt)}">${stLabel}</span></p>
+        <p class="rig"><strong>Estimated time:</strong> <span class="eta">${etaInfo.label}</span></p>
+        <p class="rig"><strong>Dishes:</strong></p>
+        <ul class="dishes">${listHtml}</ul>
+        <p class="rig"><strong>Order total:</strong> ${fmtMoney(total)}</p>
+        <div class="actions"></div>
+      `;
+
+      startCountdown(div.querySelector(".eta"), order);
+
+      // pulsante "Ho ritirato"
+      const actions = div.querySelector(".actions");
+      if (idOrd && !isClosedStatus(rawSt)) {
+        const btnPick = document.createElement("button");
+        btnPick.textContent = "I picked up the order";
+        btnPick.addEventListener("click", () => confirmPickup(div, idOrd, total));
+        actions.appendChild(btnPick);
+      }
+
+      div.dataset.total = String(total);
+      container.appendChild(div);
+    });
+
+  } catch (err) {
+    console.error("error loading orders:", err);
+    document.getElementById("orders-container").innerHTML = `
+      <p style="color:#b00">Error loading orders.</p>
+      <details><summary>Details</summary><pre>${String(err)}</pre></details>
+      <p>Checked endpoints tried automatically to avoid 404.</p>`;
+  }
+}
+// questa parte molto importante del codice carica ordni dal catalogo calcola i totali dedli ordni attivi ed infine per ordini attivi c'è il tasto ritirato 
+/* ---------------- conferma ritiro con fallback endpoint ---------------- */
+async function confirmPickup(cardEl, idOrd, total) {
+  const ok = confirm("are you sure you picked up your order at the counter?");
+  if (!ok) return;
+
+  // prove in ordine: PUT /:id/state   → PATCH /:id   → PUT /:id/stato
+  const trials = [
+    { method: "PUT",   path: `${ORDERS_BASE}/${encodeURIComponent(idOrd)}/state`,  body: { newState: "ritirato", clienteConfermaRitiro: true } },
+    { method: "PATCH", path: `${ORDERS_BASE}/${encodeURIComponent(idOrd)}`,        body: { status: "ritirato",  clienteConfermaRitiro: true } },
+    { method: "PUT",   path: `${ORDERS_BASE}/${encodeURIComponent(idOrd)}/stato`,  body: { nuovoStato: "ritirato", confermaCliente: true } },
+  ];
+
+  for (const t of trials) {
+    const res = await fetch(`${API_BASE}${t.path}`, {
+      method: t.method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(t.body)
+    }).catch(() => null);
+
+    if (res && res.ok) {
+      // ricalcola totali attivi
+      const container = document.getElementById("orders-container");
+      const summary   = document.getElementById("summary");
+      cardEl.remove();
+
+      const cards = Array.from(container.querySelectorAll(".ordine-box"));
+      const newActiveTotal = cards.reduce((s, el) => s + Number(el.dataset.total || 0), 0);
+      const plural = cards.length === 1 ? "active order" : "active orders";
+      const prevAll = summary.textContent.includes("total spent") ? null : null; // solo display, lasciamo invariato
+
+      summary.innerHTML = `
+        <p><strong>active total:</strong> ${fmtMoney(newActiveTotal)} — ${cards.length} ${plural}</p>
+      `;
+      document.getElementById("noti").innerHTML =
+        `<p class="success">Pickup confirmed. the order has been moved to the <a href="storico_clienti.html"><strong>order history</strong></a>.</p>`;
+
+      if (!container.querySelector(".ordine-box")) {
+        container.innerHTML = `
+          <p>No active orders.</p>
+          <p class="muted">you can find picked-up orders in the <a href="storico_clienti.html">order history</a>.</p>`;
+      }
+      return;
+    }
+    if (res && res.status !== 404) {
+      // errore diverso da 404: smetto di provare
+      break;
+    }
+  }
+
+  alert("error confirming pickup (endpoint not available).");
+}
+// questa e la parte che usata per spostare un ordine dalla sezione  dai i miei ordini ad storico clienti ed gestisce eventuali errori che si causano nello spostamento
+</script>
+</body>
+</html>

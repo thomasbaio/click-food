@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Homepage</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <!-- header con logo -->
+  <header class="site-header">
+    <img src="images/logo.png" alt="Restaurant Logo" class="logo" />
+    <h1>Welcome to Click&Food</h1>
+    <h2>All the best restaurants just a click away!!!!</h2>
+  </header>
+
+  <!-- Notifiche / banner “solo sfoglia” -->
+  <div id="noti" style="margin: 10px 0;"></div>
+
+  <!-- Benvenuto + link dinamici -->
+  <div id="welcome" style="margin-bottom: 10px; font-weight: bold;"></div>
+  <div id="links" style="margin-bottom: 20px;"></div>
+
+  <!-- Navigazione secondaria -->
+  <div id="nav-links" class="link-bar" style="margin-bottom: 20px;">
+    <!-- visibile a TUTTI -->
+    <a href="ricerca_piatti.html">Search for dishes</a>
+    <!-- può restare client-only -->
+    <a href="ricerca_ristoranti.html" data-client-only>Search restaurants</a>
+
+    <!-- spacer per spingere i link a destra -->
+    <span class="spacer"></span>
+
+    <!-- ORDERS sulla stessa riga dei link (niente badge) -->
+    <button id="openOrdersBtn" class="btn primary">
+      Orders
+    </button>
+
+    <!-- link per ristoratore -->
+    <a id="link-ordini-ristoratore" href="ordini_ristoratore.html" style="display:none;">Orders received</a>
+    <a id="link-statistiche" href="statistiche_ristoratore.html" style="display:none;">Statistics</a>
+  </div>
+
+
+
+  <!-- offerte speciali (solo clienti) -->
+  <h2 data-client-only>Personalized offers only</h2>
+  <ul id="special-offers" data-client-only>
+    <li>Loading...</li>
+  </ul>
+
+  <!-- vista a sezioni per ristorante -->
+  <section style="margin:24px 0;">
+    <h2 style="margin:0 0 10px;">Restaurant menu</h2>
+    <div id="menu-by-restaurant"></div>
+  </section>
+
+  <!-- footer con loghi tecnologia -->
+  <footer class="tech-footer">
+    <p style="margin:0 0 50px;">Powered by</p>
+    <div class="stack">
+      <img src="images/express.png" alt="Express" class="tech-logo" />
+      <img src="images/mongo.png" alt="MongoDB" class="tech-logo" />
+      <img src="images/nodejs.png" alt="Node.js" class="tech-logo" />
+    </div>
+  </footer>
+
+  <!-- script -->
+  <script src="js/main.js" defer></script>
+  
+
+  <script>
+  window.addEventListener("DOMContentLoaded", () => {
+    // leggi in sicurezza l'utente
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem("loggedUser") || "null"); } catch (_) { user = null; }
+
+    const noti = document.getElementById("noti");
+    const linkContainer = document.getElementById("links");
+    const welcome = document.getElementById("welcome");
+
+    const linkRestaurantOrders = document.getElementById("link-ordini-ristoratore");
+    const linkStatistics = document.getElementById("link-statistiche");
+
+    // === orders: porta alla pagina ordini cliente ===
+    const openOrdersBtn = document.getElementById("openOrdersBtn");
+    if (openOrdersBtn) {
+      openOrdersBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        // pagina ordini cliente (già presente tra i link dinamici come "My orders")
+        location.href = "i-miei-ordini.html";
+      });
+    }
+    // ======= logica utente / link dinamici =======
+    [linkRestaurantOrders, linkStatistics].forEach(el => { if (el) el.style.display = "none"; });
+
+    if (user && user.username) {
+      if (noti) { noti.innerHTML = ""; noti.style.display = "none"; }
+      welcome.textContent = `Welcome, ${user.username}`;
+
+      const isClient = user.role === "cliente";
+      const isRest   = user.role === "ristoratore";
+
+      if (isRest) {
+        if (linkRestaurantOrders) linkRestaurantOrders.style.display = "inline-block";
+        if (linkStatistics) linkStatistics.style.display = "inline-block";
+      }
+
+      linkContainer.innerHTML = `
+        ${isRest ? '<a href="add.html" id="link-add">Add Dish</a> | ' : ''}
+        ${isClient ? '<a href="i-miei-ordini.html" id="link-miei-ordini">My orders</a> | ' : ''}
+        <a href="edituser.html" id="link-edit-user">Edit Profile</a> |
+        <a href="#" id="link-logout">Logout</a>
+      `;
+
+      const logoutA = document.getElementById("link-logout");
+      if (logoutA) {
+        logoutA.addEventListener("click", (e) => {
+          e.preventDefault();
+          localStorage.removeItem("loggedUser");
+          location.href = "login.html";
+        });
+      }
+    } else {
+      if (noti) {
+        noti.innerHTML = `sei libero di sfogliare i menu.
+          accedi come cliente per effettuare ordini.
+          <a href="login.html">Vai al login</a>`;
+        noti.style.display = "block";
+      }
+      welcome.textContent = "";
+      linkContainer.innerHTML = `
+        <a href="login.html">Log in</a> |
+        <a href="register.html">Register</a>
+      `;
+    }
+  });
+  // qiesta parte di codice la prima usata per una sicurezza che solo utenti loggati possano accedere in seguito abbio benvenuto ed link per pagina riservata solo ai clienti ed pagine riservate solo ai ristoratoti giusto?
+  </script>
+
+</body>
+</html>

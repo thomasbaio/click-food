@@ -1,0 +1,65 @@
+<<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Add Dish</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/png" href="images/logo.png" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <h1>Add Dish</h1>
+
+  <div id="noti" style="margin: 8px 0;"></div>
+
+  <form id="meal-form">
+    <label for="name">Name:</label>
+    <input type="text" id="name" required><br><br>
+
+    <label for="price">Price:</label>
+    <input type="number" step="0.01" id="price" required><br><br>
+
+    <label for="description">Description:</label>
+    <textarea id="description"></textarea><br><br>
+
+    <label for="preferenza">Category:</label>
+    <select id="preferenza">
+      <option value="">-- no preference --</option>
+      <option value="Starter">Starter</option>
+      <option value="Beef">Beef</option>
+      <option value="Chicken">Chicken</option>
+      <option value="Vegetarian">Vegetarian</option>
+      <option value="Vegan">Vegan</option>
+      <option value="Lamb">Lamb</option>
+      <option value="Pasta">Pasta</option>
+      <option value="Seafood">Seafood</option>
+      <option value="Goat">Goat</option>
+      <option value="Pork">Pork</option>
+      <option value="Miscellaneous">Miscellaneous</option>
+      <option value="Breakfast">Breakfast</option>
+      <option value="Side">Side</option>
+      <option value="Dessert">Dessert</option>
+    </select><br><br>
+
+    <label for="image">Image URL:</label>
+    <input type="url" id="image" placeholder="https://..."><br><br>
+
+    <label>Ingredients:</label>
+    <div style="margin-bottom: 10px;">
+      <input type="text" id="ingredient-input" placeholder="e.g. tomato">
+      <button type="button" id="add-ingredient-btn">Add</button>
+    </div>
+    <ul id="ingredient-list" style="list-style-type: none; padding-left: 0;"></ul>
+
+    <button type="submit">Save</button>
+  </form>
+
+  <h2 style="margin-top:28px;">Or add from common dishes</h2>
+  <div id="common-meals-guard" class="muted"></div>
+  <div id="common-meals-container">
+    <p>Loading...</p>
+  </div>
+
+  <script src="js/add.js?v=6" defer></script>
+</body>
+</html>

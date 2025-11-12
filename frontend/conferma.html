@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Confirm Order</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1>Order Confirmed</h1>
+  <h2>Thank you for choosing us!</h2>
+
+  <div id="riepilogo" class="box"></div>
+  <div id="tempo-attesa" class="box"></div>
+
+  <h3>Ordered dishes:</h3>
+  <ul id="lista-piatti" class="box"></ul>
+
+  <p><a href="index.html">Return to the homepage</a></p>
+
+<script>
+window.onload = async () => {
+  // ===== API base =====
+  const isLocal  = ["localhost","127.0.0.1"].includes(location.hostname);
+  const API_BASE = isLocal
+    ? "http://localhost:3000"
+    : (window.API_BASE || "https://restaurant-management-wzhj.onrender.com");
+
+  // ===== DOM =====
+  const riepilogoEl   = document.getElementById("riepilogo");
+  const listaPiattiEl = document.getElementById("lista-piatti");
+
+  // ===== utils =====
+  const toStr = v => (v == null ? null : String(v));
+  const clean = s => (typeof s === "string" ? s.trim().toLowerCase() : null);
+
+  function normalizeMealDB(p) {
+    const id     = toStr(p.idmeals ?? p.idMeal ?? p.id ?? p._id);
+    const nome   = p.nome ?? p.strMeal ?? p.name ?? "No name";
+    const prezzo = Number(p.prezzo ?? p.price ?? 0) || 0;
+    return { id, nome, prezzo };
+  }
+
+  function extractOrderItems(raw) {
+    const arr = Array.isArray(raw) ? raw : [];
+    return arr.map(x => {
+      if (typeof x === "string" || typeof x === "number") {
+        return { id: toStr(x), qty: 1 };
+      }
+      if (x && typeof x === "object") {
+        const id     = toStr(x.mealId ?? x.idmeals ?? x.idMeal ?? x.id ?? x._id);
+        const nome   = x.nome ?? x.strMeal ?? x.name ?? x.title ?? null;
+        const prezzo = Number(x.prezzo ?? x.price);
+        const qty    = Number(x.qty ?? x.quantity ?? 1) || 1;
+        return { id, nome, prezzo, qty };
+      }
+      return { qty: 0 };
+    }).filter(it => it.id || it.nome);
+  }
+//questo pezzo di codice si occupa di normalizzare piatti cioè scriverli in una struttura dati unica ed poi di estrarre oggetto
+  function collapse(items) {
+    const agg = new Map();
+    for (const it of items) {
+      const key = it.id ? `id:${it.id}` : `name:${clean(it.nome)}`;
+      const cur = agg.get(key) || { ...it, qty: 0 };
+      cur.qty += it.qty || 1;
+      if (!cur.nome && it.nome) cur.nome = it.nome;
+      if (cur.prezzo == null && it.prezzo != null) cur.prezzo = it.prezzo;
+      agg.set(key, cur);
+    }
+    return [...agg.values()];
+  }
+
+  async function loadMealsCatalog() {
+    const res = await fetch(`${API_BASE}/meals`, { mode: "cors" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const all  = Array.isArray(data) ? data.flatMap(r => Array.isArray(r.menu) ? r.menu : []) : [];
+    return all.map(normalizeMealDB);
+  }
+
+  function minutesToClock(m) {
+    const now = new Date();
+    const ready = new Date(now.getTime() + m * 60000);
+    const hh = String(ready.getHours()).padStart(2,"0");
+    const mm = String(ready.getMinutes()).padStart(2,"0");
+    return `${hh}:${mm}`;
+  }
+// questa parte invece si occupa partendo dagli oggetti cerca di normaalizzare usando la mappa poi li restituisce all'interno di un array alla mappa poi abbiamo una funzione che si occupa di estrarre ora e anche la data
+  function renderRiepilogo(ord, etaMinutes) {
+    const payment   = ord.payment || ord.paymentMethod || "card";
+    const orderId   = ord.id ?? ord._id ?? "-";
+    const createdAt = ord.createdAt ? new Date(ord.createdAt) : null;
+
+    riepilogoEl.innerHTML = `
+      <p><strong>Order ID:</strong> ${orderId}</p>
+      ${createdAt ? `<p><strong>Date:</strong> ${createdAt.toLocaleString()}</p>` : ""}
+      <p><strong>Pickup:</strong> at the restaurant</p>
+      <p><strong>Payment method:</strong> ${payment}</p>
+      <p class="ok"><strong>Estimated time:</strong> ~${etaMinutes} min (ready by ${minutesToClock(etaMinutes)})</p>
+    `;
+  }
+
+  async function resolveAndRenderItems(orderItems) {
+    const allHaveName = orderItems.length && orderItems.every(it => !!it.nome);
+    if (allHaveName) {
+      const collapsed = collapse(orderItems);
+      let totale = 0;
+      listaPiattiEl.innerHTML = collapsed.map(it => {
+        const q = it.qty || 1;
+        const p = Number(it.prezzo ?? 0) || 0;
+        const sub = p * q;
+        if (p) totale += sub;
+        return `<li><strong>${it.nome}</strong> × ${q}${p ? ` — €${sub.toFixed(2)}` : ""}</li>`;
+      }).join("");
+      if (totale > 0) {
+        const li = document.createElement("li");
+        li.style.marginTop = "8px";
+        li.innerHTML = `<strong>Total:</strong> €${totale.toFixed(2)}`;
+        listaPiattiEl.appendChild(li);
+      }
+      return collapse(orderItems);
+    }
+//questa fase ri occupa di fare il visulizza all'utente lo staot del ordine il nome il costo del piatto e dove deve ritirarlo
+    // mappa con catalogo
+    let catalog = [];
+    try { catalog = await loadMealsCatalog(); } catch {}
+    const byId   = new Map(catalog.filter(m => m.id).map(m => [m.id, m]));
+    const byName = new Map(catalog.map(m => [clean(m.nome), m]));
+
+    const collapsed = collapse(orderItems);
+    const rows = [];
+    let totale = 0;
+
+    for (const it of collapsed) {
+      let meal = null;
+      if (it.id && byId.has(it.id)) meal = byId.get(it.id);
+      else if (it.nome && byName.has(clean(it.nome))) meal = byName.get(clean(it.nome));
+
+      const shownName = meal?.nome || it.nome || (it.id ? `#${it.id}` : "Dish");
+      const unitPrice = (it.prezzo != null) ? Number(it.prezzo) : Number(meal?.prezzo);
+      const q = it.qty || 1;
+
+      if (Number.isFinite(unitPrice) && unitPrice > 0) {
+        const sub = unitPrice * q;
+        totale += sub;
+        rows.push(`<li><strong>${shownName}</strong> × ${q} — €${sub.toFixed(2)}</li>`);
+      } else {
+        rows.push(`<li><strong>${shownName}</strong> × ${q}</li>`);
+      }
+    }
+
+    listaPiattiEl.innerHTML = rows.length ? rows.join("") : `<li>No dishes found.</li>`;
+    if (totale > 0 && rows.length) {
+      const li = document.createElement("li");
+      li.style.marginTop = "8px";
+      li.innerHTML = `<strong>Total:</strong> €${totale.toFixed(2)}`;
+      listaPiattiEl.appendChild(li);
+    }
+    return collapsed;
+  }
+// questa parte di srve per la prima parte ricavare map poi normalizzaew il nome ed il prezzo del piatto
+  async function fetchOrderById(id) {
+    try {
+      const res = await fetch(`${API_BASE}/orders/${encodeURIComponent(id)}`, { mode: "cors" });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
+  }
+  async function fetchLastOrderOfUser(username) {
+    try {
+      const res = await fetch(`${API_BASE}/orders?username=${encodeURIComponent(username)}`, { mode: "cors" });
+      if (!res.ok) return null;
+      const list = await res.json();
+      if (!Array.isArray(list) || list.length === 0) return null;
+      return list.sort((a,b) => {
+        const ia = Number(a.id || 0), ib = Number(b.id || 0);
+        if (ia !== ib) return ib - ia;
+        return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
+      })[0];
+    } catch { return null; }
+  }
+// per questa parte si fa il fetch ordine partendo dal id ed sia si parte dak username per ritrovare ultimo ordine del cliente 
+  // ===== recupera ordine (id -> localStorage -> ultimo per utente) =====
+  const params = new URLSearchParams(location.search);
+  const orderIdParam = params.get("orderId");
+
+  let ordine = null;
+  if (orderIdParam) ordine = await fetchOrderById(orderIdParam);
+  if (!ordine) ordine = JSON.parse(localStorage.getItem("lastConfirmedOrder") || "null");
+  if (!ordine) {
+    const user = JSON.parse(localStorage.getItem("loggedUser") || "null");
+    if (user?.username) ordine = await fetchLastOrderOfUser(user.username);
+  }
+
+  if (!ordine) {
+    riepilogoEl.innerHTML = `<p class="err">No order found.</p>`;
+    listaPiattiEl.innerHTML = `<li>No dishes found.</li>`;
+    return;
+  }
+
+  // ===== estrai items e stima ETA SOLO per pickup =====
+  let items =
+    extractOrderItems(ordine.meals)
+    .concat(extractOrderItems(ordine.items))
+    .concat(extractOrderItems(ordine.cart))
+    .concat(extractOrderItems(ordine.cartItems));
+
+  if (!items.length) items = extractOrderItems(ordine.products);
+
+  const collapsed = items.length ? await resolveAndRenderItems(items) : [];
+  const qtyTot = collapsed.reduce((s, x) => s + (x.qty || 1), 0);
+
+  // ETA locale: ritiro in negozio
+  let eta = 12 + 5 * Math.max(1, qtyTot);
+  eta = Math.min(45, Math.max(10, eta));
+
+  renderRiepilogo(ordine, eta);
+};
+// dopo aver estratto oggetto  li normalizza poi si occupa di calcolare il tempo di consegna che fatto in modo basilare co minimo di 10 ad una massimo di 45 minuti 
+</script>
+
+</body>
+</html>

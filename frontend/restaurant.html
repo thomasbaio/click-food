@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title> Restaurant management </title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1> Restaurant management </h1>
+
+  <div id="info"></div>
+
+  <form id="restaurant-form">
+    <label for="restaurantName"> Restaurant name: </label>
+    <input type="text" id="restaurantName" required><br><br>
+
+    <label for="address"> Address: </label>
+    <input type="text" id="address" required><br><br>
+
+    <label for="piva"> VAT numer: </label>
+    <input type="text" id="piva" required><br><br>
+
+    <label for="phone"> Telephoneo: </label>
+    <input type="text" id="phone" required><br><br>
+
+    <button type="submit"> Save </button>
+    <button type="button" onclick="logout()"> Logout </button>
+  </form>
+
+  <script src="js/restaurant.js"></script>
+</body>
+</html>

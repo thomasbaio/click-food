@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Edit profile</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1>Edit user profile</h1>
+
+  <form id="edit-user-form">
+    <label> Username: <input type="text" id="username" required></label><br><br>
+    <label> Email: <input type="email" id="email" required></label><br><br>
+    <label> Password: <input type="password" id="password" required></label><br><br>
+
+    <label> Role:</label><br>
+    <label><input type="radio" name="role" value="cliente"> Customer</label><br>
+    <label><input type="radio" name="role" value="ristoratore"> Restaurant</label><br><br>
+
+    <div id="ristoratore-extra" style="display: none;">
+      <label> VAT number: <input type="text" id="piva"></label><br><br>
+      <label> Telephone: <input type="text" id="telefono"></label><br><br>
+      <label> Place: <input type="text" id="luogo"></label><br><br>
+      <label> Street address: <input type="text" id="via"></label><br><br>
+    </div>
+
+    <div id="cliente-extra" style="display: none;">
+      <label> Name: <input type="text" id="nome"></label><br><br>
+      <label> Surname: <input type="text" id="cognome"></label><br><br>
+      <label> Payment Method:
+        <select id="pagamento">
+          <option value=""> -- Select -- </option>
+          <option value="Visa"> Visa </option>
+          <option value="Mastercard"> Mastercard </option>
+          <option value="Postepay"> Postepay </option>
+          <option value="Amex"> Amex </option>
+        </select>
+      </label><br><br>
+
+      <label for="preferenza"> Product preference:</label>
+      <select id="preferenza">
+        <option value="">-- no preferences --</option>
+        <option value="Starter"> Starter </option>
+        <option value="Beef"> Beef </option>
+        <option value="Chicken"> Chicken </option>
+        <option value="Vegetarin"> Vegetarin </option>
+        <option value="Vegan"> Vegan </option>
+        <option value="Lamb"> Lamb </option>
+        <option value="Pasta"> Pasta </option>
+        <option value="Seafood"> Seafood </option>
+        <option value="Goat"> Goat </option>
+        <option value="Pork"> Pork </option>
+        <option value="Miscellaneous"> Miscellaneous </option>
+        <option value="Breakfast"> Breakfast </option>
+        <option value="Side"> Side </option>
+        <option value="dessert"> Dessert </option>
+        </select><br><br>
+    </div>
+
+    <button type="submit">Save changes</button>
+    <button type="button" id="delete-btn" style="color: red;">Delete profile</button>
+  </form>
+
+  <p><a href="index.html">Return to the homepage</a></p>
+
+<script>
+  // ---- config dinamica API ----
+  const isLocal = location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const API_BASE = isLocal
+    ? "http://localhost:3000"
+    : "https://restaurant-management-wzhj.onrender.com";
+
+  const params = new URLSearchParams(window.location.search);
+  let storedUser = null;
+
+  try {
+    storedUser = JSON.parse(localStorage.getItem("loggedUser") || "null");
+  } catch { storedUser = null; }
+
+  if (!storedUser) {
+    alert("you must be logged in to edit your profile.");
+    window.location.href = "login.html";
+  }
+
+  // ——— risoluzione robusta dell'ID utente ———
+  async function resolveUserId() {
+    // 1) da query string ?id=
+    const fromQuery = params.get("id");
+    if (fromQuery && !Number.isNaN(Number(fromQuery))) return Number(fromQuery);
+
+    // 2) da localStorage: supporta id numerico o _id string (Mongo)
+    if (storedUser && storedUser.id != null) return storedUser.id;
+    if (storedUser && storedUser._id) return storedUser._id; // backend Mongo
+
+    // 3) lookup sul backend: prova endpoint lista utenti
+    try {
+      // preferisci un endpoint /users?username=... se esiste, altrimenti fallback /users
+      let res = await fetch(`${API_BASE}/users?username=${encodeURIComponent(storedUser.username || "")}`);
+      if (!res.ok) {
+        // fallback: prendi tutti gli utenti e cerca localmente
+        res = await fetch(`${API_BASE}/users`);
+      }
+      if (res.ok) {
+        const data = await res.json();
+        // data può essere singolo utente o array
+        const list = Array.isArray(data) ? data : [data];
+        const match = list.find(u =>
+          (u.username && storedUser.username && u.username === storedUser.username) ||
+          (u.email && storedUser.email && u.email === storedUser.email)
+        );
+        if (match) return match.id ?? match._id ?? null;
+      }
+    } catch (e) {
+      console.warn("ID lookup failed:", e);
+    }
+    return null;
+  }
+// questo pezzo si occupa di gestire se utente non è registrato nella seconda parte si occupa di estrarre prima localmente poi passa al backend per avere una lista d'utenti  giusto? 
+  // ——— prefill e ui ———
+  function showRoleBlocks(role) {
+    document.getElementById("ristoratore-extra").style.display = role === "ristoratore" ? "block" : "none";
+    document.getElementById("cliente-extra").style.display = role === "cliente" ? "block" : "none";
+  }
+  function safeSet(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.value = val ?? "";
+  }
+
+  (async function init() {
+    const resolvedId = await resolveUserId();
+    if (!resolvedId) {
+      alert("Unable to determine your user ID. Try logging in again.");
+      // Evita loop infinito.
+      window.location.href = "login.html";
+      return;
+    }
+//questa parte anch'essa è usata per evitare che utenti non autorizzati accedano 
+    // aggiorna localStorage con l'id risolto.
+    storedUser = { ...storedUser, id: resolvedId };
+    localStorage.setItem("loggedUser", JSON.stringify(storedUser));
+
+    // prefill
+    safeSet("username", storedUser.username);
+    safeSet("email", storedUser.email);
+    safeSet("password", storedUser.password);// password in chiaro nel DOM
+
+    const role = storedUser.role === "ristoratore" || storedUser.role === "cliente" ? storedUser.role : "cliente";
+    const roleInput = document.querySelector(`input[name="role"][value="${role}"]`);
+    if (roleInput) roleInput.checked = true;
+    showRoleBlocks(role);
+
+    // ristoratore extra
+    safeSet("piva", storedUser.piva);
+    safeSet("telefono", storedUser.telefono);
+    safeSet("luogo", storedUser.luogo);
+    safeSet("via", storedUser.via);
+
+    // cliente extra
+    safeSet("nome", storedUser.nome);
+    safeSet("cognome", storedUser.cognome);
+    safeSet("pagamento", storedUser.pagamento);
+    safeSet("preferenza", storedUser.preferenza);
+  })();
+//questa parte si occupa di pre-compila i dati del utente nel form
+  // toggle dinamico ruolo
+  document.querySelectorAll('input[name="role"]').forEach(radio => {
+    radio.addEventListener("change", function () { showRoleBlocks(this.value); });
+  });
+
+  // ——— submit modifica ———
+  document.getElementById("edit-user-form").addEventListener("submit", async function (e) {
+    e.preventDefault();
+
+    const current = JSON.parse(localStorage.getItem("loggedUser") || "null");
+    if (!current || current.id == null) {
+      alert("Session expired. Please log in again.");
+      window.location.href = "login.html";
+      return;
+    }
+
+    const selectedRole = document.querySelector('input[name="role"]:checked')?.value || "cliente";
+    const updatedUser = {
+      username: document.getElementById("username").value.trim(),
+      email: document.getElementById("email").value.trim(),
+      password: document.getElementById("password").value,
+      role: selectedRole
+    };
+
+    if (selectedRole === "ristoratore") {
+      updatedUser.piva = document.getElementById("piva").value.trim();
+      updatedUser.telefono = document.getElementById("telefono").value.trim();
+      updatedUser.luogo = document.getElementById("luogo").value.trim();
+      updatedUser.via = document.getElementById("via").value.trim();
+    } else {
+      updatedUser.nome = document.getElementById("nome").value.trim();
+      updatedUser.cognome = document.getElementById("cognome").value.trim();
+      updatedUser.pagamento = document.getElementById("pagamento").value;
+      updatedUser.preferenza = document.getElementById("preferenza").value;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/users/${current.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedUser)
+      });
+
+      if (res.ok) {
+        let saved = null;
+        try { saved = await res.json(); } catch {}
+        const finalUser = saved && typeof saved === "object" ? saved : { ...updatedUser, id: current.id };
+        localStorage.setItem("loggedUser", JSON.stringify(finalUser));
+        alert("profile updated successfully!");
+        window.location.href = "index.html";
+      } else {
+        const msg = await res.text();
+        alert("error while editing profile: " + (msg || res.status));
+      }
+    } catch (err) {
+      console.error("Error:", err);
+      alert("network error. check your connection or server URL.");
+    }
+  });
+  //questa parte verrà effettuata se utente schiaccera il bottone modifica profilo ed si occuper di modificare i campi che sono stati modificati ed gestisce se ci sono stati eventuali errori
+
+  // ——— delete account ———
+  document.getElementById("delete-btn").addEventListener("click", async function () {
+    const current = JSON.parse(localStorage.getItem("loggedUser") || "null");
+    if (!current || current.id == null) {
+      alert("your session has expired. please log in again.");
+      window.location.href = "login.html";
+      return;
+    }
+    if (!confirm("are you sure you want to delete your account?")) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/users/${current.id}`, { method: "DELETE" });
+      if (res.ok) {
+        alert("account deleted.");
+        localStorage.removeItem("loggedUser");
+        window.location.href = "index.html";
+      } else {
+        const msg = await res.text();
+        alert("error deleting account: " + (msg || res.status));
+      }
+    } catch (err) {
+      console.error("Error:", err);
+      alert("network error. check your connection or server URL.");
+    }
+  });
+  //questo invece usato se utente decide di eliminare account verra gestito in tutte le condizioni
+</script>
+
+</body>
+</html>

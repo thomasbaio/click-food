@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <title> Search restaurants </title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="icon" type="image/png" href="images/logo.png">
+</head>
+<body>
+  <h1> Search restaurants </h1>
+
+  <div>
+    <label for="nome"> Name of the restaurants: </label>
+    <input type="text" id="nome" placeholder="Es. La Trattoria"><br><br>
+
+    <label for="luogo"> Place: </label>
+    <input type="text" id="luogo" placeholder="Es. Roma"><br><br>
+
+    <button onclick="cercaRistoranti()"> Search </button>
+  </div>
+
+  <h3> Results: </h3>
+  <ul id="risultati-ristoranti"></ul>
+
+  <p><a href="index.html"> Return to the homepage </a></p>
+
+  <script src="js/ricerca_ristoranti.js"></script>
+</body>
+</html>
